@@ -1,4 +1,3 @@
 GET https://euw1.api.riotgames.com/tft/league/v1/challenger
 X-Riot-Token: RGAPI-4951a399-f393-4e56-843d-f750d17ff35b
 Content-Type: application/json
-

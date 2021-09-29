@@ -1,1 +1,4 @@
-feast
+psycopg2
+pandas
+tqdm
+requests
