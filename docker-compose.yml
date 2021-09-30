@@ -124,6 +124,7 @@ services:
     - postgres
     - -c
     - max_connections=150
+    container_name: pg_container
     environment:
       POSTGRES_DB: prefect_server
       POSTGRES_PASSWORD: test-password
