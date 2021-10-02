@@ -1,2 +1,2 @@
 # ETL Riot Games
-ETL job using Apache Airflow to load data from Riot Games API into a postgresql database
+ETL job using Prefect to load data from Riot Games API into a postgresql database
