@@ -16,12 +16,12 @@ docker-compose up
 Scripts to setup Prefect locally contained in scripts.sh
 
 ## Database
-Designed in dbdiagram.io, with easy export to postgresql functionality
+Designed in https://dbdiagram.io with easy export to postgresql functionality
 ![](images/dbdiagram.png)
 
 pgAdmin available at http://localhost:5050 to view/edit database
 ![](images/pgAdmin.png)
 
 ## Prefect Server
-Use Prefect Server to monitor and execute flows
+Use Prefect Server at http://localhost:8080 to monitor and execute flows
 ![](images/prefect.png)
