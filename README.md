@@ -1,2 +1,27 @@
 # ETL Riot Games
-ETL job using Prefect to load data from Riot Games API into a postgresql database
+Using Prefect & Python to load data from the Riot Games API into a postgresql database
+
+## Requirements:
+- Python
+- Prefect
+- Docker
+- Postgresql
+- pgAdmin
+
+## Installation
+Easy local setup using docker-compose:
+```html
+docker-compose up
+```
+Scripts to setup Prefect locally contained in scripts.sh
+
+## Database
+Designed in dbdiagram.io, with easy export to postgresql functionality
+![](images/dbdiagram.png)
+
+pgAdmin available at http://localhost:5050 to view/edit database
+![](images/pgAdmin.png)
+
+## Prefect Server
+Use Prefect Server to monitor and execute flows
+![](images/prefect.png)
