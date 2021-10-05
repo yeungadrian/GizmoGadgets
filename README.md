@@ -1,5 +1,5 @@
 # ETL Riot Games
-Using Prefect & Python to load data from the Riot Games API into a postgresql database
+Using Prefect & Python to load data from the Riot Games API into a postgresql database. Allows people to get match history data to analyse the best item / team composition or build profiles of users
 
 ## Requirements:
 - Python
