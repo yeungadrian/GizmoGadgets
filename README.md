@@ -9,6 +9,12 @@ Using Prefect & Python to load data from the Riot Games API into a postgresql da
 - pgAdmin
 
 ## Installation
+Setup a python virtual environment with https://docs.python.org/3/library/venv.html
+```html
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
 Easy local setup using docker-compose:
 ```html
 docker-compose up
