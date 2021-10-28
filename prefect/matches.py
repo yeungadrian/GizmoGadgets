@@ -3,10 +3,7 @@ from prefect.tasks.secrets import PrefectSecret
 from datetime import timedelta
 from prefect.schedules import IntervalSchedule
 from prefect.tasks.postgres import PostgresExecute, PostgresFetch
-import psycopg2 as pg
 import requests
-import pandas as pd
-from requests.api import request
 import time
 import datetime
 
@@ -18,11 +15,11 @@ def get_match_history(username, password, db_name, api_key):
     credentials are loaded (though we recommend using `PrefectSecret` tasks to
     load them."""
 
-    query_header = {"X-Riot-Token": api_key}
+    riot_header = {"X-Riot-Token": api_key}
 
     user_query = "SELECT puuid FROM users"
-    password = password
-    puuids = PostgresFetch(
+
+    all_puuids = PostgresFetch(
         db_name=db_name,
         user=username,
         host="127.0.0.1",
@@ -33,10 +30,10 @@ def get_match_history(username, password, db_name, api_key):
         commit=True,
     ).run(password=password)
 
-    for i in puuids:
-        the_puuid = i[0]
-        match_id_url = f"https://europe.api.riotgames.com/tft/match/v1/matches/by-puuid/{the_puuid}/ids?count=20"
-        recent_match_ids = requests.get(url=match_id_url, headers=query_header).json()
+    for puuid in all_puuids:
+        puuid = puuid[0]
+        match_id_url = f"https://europe.api.riotgames.com/tft/match/v1/matches/by-puuid/{puuid}/ids?count=20"
+        recent_match_ids = requests.get(url=match_id_url, headers=riot_header).json()
         time.sleep(1.6)
 
         match_id_query = "SELECT matchid FROM matchdata WHERE matchid = ANY(%s);"
@@ -56,12 +53,12 @@ def get_match_history(username, password, db_name, api_key):
         new_matches = set(recent_match_ids).symmetric_difference(set(existing_ids))
         new_matches = list(new_matches)
 
-        for j in new_matches:
+        for match_id in new_matches:
             match_detail_url = (
                 f"https://europe.api.riotgames.com/tft/match/v1/matches/{j}"
             )
             time.sleep(1.6)
-            match_detail = requests.get(match_detail_url, headers=query_header).json()
+            match_detail = requests.get(match_detail_url, headers=riot_header).json()
 
             match_time = datetime.datetime.fromtimestamp(
                 match_detail["info"]["game_datetime"] / 1e3
@@ -73,7 +70,7 @@ def get_match_history(username, password, db_name, api_key):
                     """
 
             match_data = (
-                j,
+                match_id,
                 str(match_time),
                 str(time_now),
             )
@@ -87,6 +84,18 @@ def get_match_history(username, password, db_name, api_key):
                 data=match_data,
                 commit=True,
             ).run(password=password)
+
+            '''
+                We have all the match detail
+                1. Insert into matchdata [done]
+                Get id we just inserted
+                Loop for each participant
+                    2. Insert into matchuserinfo
+                    Get id we just inserteds
+                    3. Insert into matchtraits
+                    4. Insert into matchunits
+                    Need to split this into functions, although always passing db_name, etc is a pain
+            '''
 
 
 with Flow("Get Latest Matches") as flow:
