@@ -11,7 +11,7 @@ CREATE TABLE "users" (
 CREATE TABLE "matchinfo" (
   "id" SERIAL UNIQUE PRIMARY KEY,
   "matchid" varchar,
-  "userid" int,
+  "userid" varchar,
   "placement" int
 );
 
@@ -24,6 +24,5 @@ CREATE TABLE "matchunits" (
   "item3" int
 );
 
-ALTER TABLE "matchinfo" ADD FOREIGN KEY ("userid") REFERENCES "users" ("id");
 
 ALTER TABLE "matchunits" ADD FOREIGN KEY ("matchinfoid") REFERENCES "matchinfo" ("id");
