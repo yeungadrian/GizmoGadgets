@@ -96,6 +96,8 @@ services:
     - postgres
     - -c
     - max_connections=150
+    volumes:
+    - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     environment:
       POSTGRES_DB: prefect_server
       POSTGRES_PASSWORD: test-password
