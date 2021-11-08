@@ -28,24 +28,19 @@ def requests_retry_session(
     session.mount("https://", adapter)
     return session
 
-
 @task
-def get_league_users(league, password, db_args):
+def get_users_from_league(region, league, password, db_args):
 
-    user_query = " SELECT puuid, region FROM users WHERE league = %s "
-    user_data = (league,)
+    user_query = "SELECT puuid FROM users WHERE league = %s and region = %s"
+    user_data = (league, region)
     all_puuids = PostgresFetch(
         query=user_query, data=user_data, fetch="all", **db_args
     ).run(password=password)
 
     return all_puuids
 
-
 @task
-def update_recent_match_history(player, password, riot_header, db_args):
-    logger = prefect.context.get("logger")
-    puuid = player[0]
-    region = player[1]
+def update_recent_match_history(region, puuid, logger, password, riot_header, db_args):
 
     if region in ["EUW1", "EUN1", "RU", "TR1"]:
         route = "europe"
@@ -55,6 +50,7 @@ def update_recent_match_history(player, password, riot_header, db_args):
         route = "americas"
 
     match_id_url = f"https://{route}.api.riotgames.com/tft/match/v1/matches/by-puuid/{puuid}/ids?count=5"
+
     recent_match_ids_call = requests_retry_session().get(
         url=match_id_url, headers=riot_header
     )
@@ -77,110 +73,149 @@ def update_recent_match_history(player, password, riot_header, db_args):
     new_matches = list(new_matches)
 
     for match_id in new_matches:
-        check_query = """
-                SELECT id FROM matchinfo WHERE matchid = %s
-                """
+        update_match(
+            match_id=match_id,
+            route=route,
+            logger=logger,
+            password=password,
+            riot_header=riot_header,
+            db_args=db_args,
+        )
 
-        check_data = (match_id,)
+@task
+def update_match(match_id, route, logger, password, riot_header, db_args):
+    match_detail_url = (
+        f"https://{route}.api.riotgames.com/tft/match/v1/matches/{match_id}"
+    )
 
-        match_check = PostgresExecute(
-            query=check_query, data=check_data, **db_args
-        ).run(password=password)
+    match_detail_call = requests_retry_session().get(
+        match_detail_url, headers=riot_header
+    )
 
-        if match_check is None:
+    if match_detail_call.status_code != 200:
+        logger.warning(
+            f"Error requesting puuid data, status code{match_detail_call.status_code}"
+        )
+    match_detail = match_detail_call.json()
 
-            match_detail_url = (
-                f"https://{route}.api.riotgames.com/tft/match/v1/matches/{match_id}"
+    time.sleep(RATE_LIMIT_SECONDS)
+
+    for participant in match_detail["info"]["participants"]:
+        user_id = participant["puuid"]
+        update_participant_matchinfo(user_id, match_id, participant, password, db_args)
+
+        match_data_id = get_matchinfo_id(user_id, match_id, password, db_args)
+
+        for units in participant["units"]:
+            update_match_units(
+                units=units,
+                match_data_id=match_data_id,
+                password=password,
+                db_args=db_args,
             )
 
-            match_detail_call = requests_retry_session().get(
-                match_detail_url, headers=riot_header
+        for traits in participant["traits"]:
+            update_match_traits(
+                traits=traits,
+                match_data_id=match_data_id,
+                password=password,
+                db_args=db_args,
             )
 
-            if recent_match_ids_call.status_code != 200:
-                logger.warning(
-                    f"Error requesting puuid data, status code{match_detail_call.status_code}"
-                )
-            match_detail = match_detail_call.json()
+@task
+def update_participant_matchinfo(user_id, match_id, participant, password, db_args):
+    match_query = """
+            INSERT INTO matchinfo VALUES (DEFAULT,%s,%s,%s)
+            """
 
-            time.sleep(RATE_LIMIT_SECONDS)
+    match_data = (
+        match_id,
+        user_id,
+        participant["placement"],
+    )
 
-            for participant in match_detail["info"]["participants"]:
+    PostgresExecute(query=match_query, data=match_data, **db_args).run(
+        password=password
+    )
 
-                user_id = participant["puuid"]
+@task
+def get_matchinfo_id(user_id, match_id, password, db_args):
+    participant_query = """
+    SELECT id FROM matchinfo WHERE puuid = %s and matchid = %s
+    """
 
-                match_query = """
-                    INSERT INTO matchinfo VALUES (DEFAULT,%s,%s,%s)
-                    """
+    participant_data = (
+        user_id,
+        match_id,
+    )
 
-                match_data = (
-                    match_id,
-                    user_id,
-                    participant["placement"],
-                )
+    match_data_id = PostgresFetch(
+        query=participant_query,
+        data=participant_data,
+        fetch="one",
+        **db_args,
+    ).run(password=password)
 
-                PostgresExecute(query=match_query, data=match_data, **db_args).run(
-                    password=password
-                )
+    return match_data_id
 
-                participant_query = """
-                    SELECT id FROM matchinfo WHERE puuid = %s and matchid = %s
-                    """
+@task
+def update_match_units(units, match_data_id, password, db_args):
+    character_id = units["character_id"]
+    tier = units["tier"]
+    items = units["items"]
+    item1 = items[0] if len(items) > 0 else None
+    item2 = items[1] if len(items) > 1 else None
+    item3 = items[1] if len(items) > 2 else None
 
-                participant_data = (
-                    user_id,
-                    match_id,
-                )
+    unit_query = """
+        INSERT INTO matchunits VALUES (%s,%s,%s,%s,%s,%s)
+        """
+    unit_data = (
+        match_data_id,
+        character_id,
+        tier,
+        item1,
+        item2,
+        item3,
+    )
 
-                match_data_id = PostgresFetch(
-                    query=participant_query,
-                    data=participant_data,
-                    fetch="one",
-                    **db_args,
-                ).run(password=password)
+    PostgresExecute(query=unit_query, data=unit_data, **db_args).run(password=password)
 
-                for units in participant["units"]:
-                    character_id = units["character_id"]
-                    tier = units["tier"]
-                    items = units["items"]
-                    item1 = items[0] if len(items) > 0 else None
-                    item2 = items[1] if len(items) > 1 else None
-                    item3 = items[1] if len(items) > 2 else None
+@task
+def update_match_traits(traits, match_data_id, password, db_args):
+    name = traits["name"]
+    number_units = traits["num_units"]
+    trait_tier = traits["tier_current"]
 
-                    unit_query = """
-                        INSERT INTO matchunits VALUES (%s,%s,%s,%s,%s,%s)
-                        """
-                    unit_data = (
-                        match_data_id,
-                        character_id,
-                        tier,
-                        item1,
-                        item2,
-                        item3,
-                    )
+    unit_query = """
+        INSERT INTO matchtraits VALUES (%s,%s,%s,%s)
+        """
+    unit_data = (
+        match_data_id,
+        name,
+        number_units,
+        trait_tier,
+    )
 
-                    PostgresExecute(query=unit_query, data=unit_data, **db_args).run(
-                        password=password
-                    )
+    PostgresExecute(query=unit_query, data=unit_data, **db_args).run(password=password)
 
-                for traits in participant["traits"]:
-                    name = traits["name"]
-                    number_units = traits["num_units"]
-                    trait_tier = traits["tier_current"]
 
-                    unit_query = """
-                        INSERT INTO matchtraits VALUES (%s,%s,%s,%s)
-                        """
-                    unit_data = (
-                        match_data_id,
-                        name,
-                        number_units,
-                        trait_tier,
-                    )
+@task
+def update_match_flow(region, league, password, riot_header, db_args):
+    logger = prefect.context.get("logger")
+    user_puuids = get_users_from_league(
+        region=region, league=league, password=password, db_args=db_args
+    )
 
-                    PostgresExecute(query=unit_query, data=unit_data, **db_args).run(
-                        password=password
-                    )
+    for puuid in user_puuids:
+        update_recent_match_history(
+            region=region,
+            puuid=puuid,
+            logger=logger,
+            password=password,
+            riot_header=riot_header,
+            db_args=db_args,
+        )
 
 
 with Flow("Matches - Master") as flow:
@@ -196,10 +231,23 @@ with Flow("Matches - Master") as flow:
         "commit": True,
     }
 
-    all_puuids = get_league_users(league=league, password=password, db_args=db_args)
+    regions = [
+        "BR1",
+        "EUN1",
+        "EUW1",
+        "JP1",
+        "KR",
+        "LA1",
+        "LA2",
+        "NA1",
+        "OC1",
+        "TR1",
+        "RU",
+    ]
 
-    update_recent_match_history.map(
-        player=all_puuids,
+    update_match_flow.map(
+        region=regions,
+        league=unmapped(league),
         password=unmapped(password),
         riot_header=unmapped(riot_header),
         db_args=unmapped(db_args),
