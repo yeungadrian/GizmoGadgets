@@ -32,6 +32,6 @@ Use Prefect Server at http://localhost:8080 to monitor and execute flows
 ![](images/prefect.png)
 
 ## To Do:
-- [] Add retrying mechanism as api is quite flaky, even with delays
+- [x] Add retrying mechanism as api is quite flaky, even with delays
 - [] Type checking with pydantic
 - [] Publish package with code, to get around prefect limitation of no imports from other python files

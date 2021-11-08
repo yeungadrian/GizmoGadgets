@@ -1,27 +1,62 @@
+import prefect
 from prefect import task, Flow, unmapped
 from prefect.tasks.secrets import PrefectSecret
 from prefect.tasks.postgres import PostgresExecute
 import requests
 import time
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+
+
+RATE_LIMIT_SECONDS = 1.6
+
+
+def requests_retry_session(
+    retries=3,
+    backoff_factor=2,
+    status_forcelist=(429, 500, 502, 503, 504),
+    session=None,
+):
+    session = session or requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    return session
 
 
 @task
 def get_users_from_league(region, league, rank, riot_header):
+    logger = prefect.context.get("logger")
     if league in ["challenger", "grandmaster", "master"]:
         tft_league_url = f"https://{region}.api.riotgames.com/tft/league/v1/{league}"
     else:
         tft_league_url = (
             f"https://{region}.api.riotgames.com/tft/league/v1/entries/{league}/{rank}"
         )
-    tft_league_response = requests.get(url=tft_league_url, headers=riot_header).json()
-    time.sleep(3)
+    tft_league_call = requests_retry_session().get(
+        url=tft_league_url, headers=riot_header
+    )
+
+    if tft_league_call.status_code != 200:
+        logger.warning(
+            f"Error requesting league data, status code{tft_league_call.status_code}"
+        )
+
+    tft_league_response = tft_league_call.json()
+    time.sleep(RATE_LIMIT_SECONDS)
 
     return tft_league_response
 
 
 @task
 def update_users(entries, region, tier, rank, password, riot_header, db_args):
-
+    logger = prefect.context.get("logger")
     summonerId = entries["summonerId"]
     summonerName = entries["summonerName"]
     leaguePoints = entries["leaguePoints"]
@@ -29,9 +64,15 @@ def update_users(entries, region, tier, rank, password, riot_header, db_args):
     puuid_url = (
         f"https://{region}.api.riotgames.com/tft/summoner/v1/summoners/{summonerId}"
     )
-    puuid_response = requests.get(url=puuid_url, headers=riot_header).json()
+    puuid_call = requests_retry_session().get(url=puuid_url, headers=riot_header)
 
-    time.sleep(3)
+    if puuid_call.status_code != 200:
+        logger.warning(
+            f"Error requesting puuid data, status code{puuid_call.status_code}"
+        )
+
+    puuid_response = puuid_call.json()
+    time.sleep(RATE_LIMIT_SECONDS)
 
     puuid = str(puuid_response["puuid"])
 

@@ -1,8 +1,32 @@
+import prefect
 from prefect import task, Flow, unmapped
 from prefect.tasks.secrets import PrefectSecret
 from prefect.tasks.postgres import PostgresExecute, PostgresFetch
 import requests
 import time
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+
+RATE_LIMIT_SECONDS = 1.6
+
+
+def requests_retry_session(
+    retries=3,
+    backoff_factor=2,
+    status_forcelist=(429, 500, 502, 503, 504),
+    session=None,
+):
+    session = session or requests.Session()
+    retry = Retry(
+        total=retries,
+        read=retries,
+        connect=retries,
+        backoff_factor=backoff_factor,
+        status_forcelist=status_forcelist,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    return session
 
 
 @task
@@ -19,6 +43,7 @@ def get_league_users(league, password, db_args):
 
 @task
 def update_recent_match_history(player, password, riot_header, db_args):
+    logger = prefect.context.get("logger")
     puuid = player[0]
     region = player[1]
 
@@ -30,8 +55,16 @@ def update_recent_match_history(player, password, riot_header, db_args):
         route = "americas"
 
     match_id_url = f"https://{route}.api.riotgames.com/tft/match/v1/matches/by-puuid/{puuid}/ids?count=5"
-    recent_match_ids = requests.get(url=match_id_url, headers=riot_header).json()
-    time.sleep(4)
+    recent_match_ids_call = requests_retry_session().get(
+        url=match_id_url, headers=riot_header
+    )
+
+    if recent_match_ids_call.status_code != 200:
+        logger.warning(
+            f"Error requesting puuid data, status code{recent_match_ids_call.status_code}"
+        )
+    recent_match_ids = recent_match_ids_call.json()
+    time.sleep(RATE_LIMIT_SECONDS)
 
     match_id_query = "SELECT matchid FROM matchinfo WHERE matchid = ANY(%s);"
     match_id_data = (recent_match_ids,)
@@ -44,26 +77,33 @@ def update_recent_match_history(player, password, riot_header, db_args):
     new_matches = list(new_matches)
 
     for match_id in new_matches:
-        match_detail_url = (
-            f"https://{route}.api.riotgames.com/tft/match/v1/matches/{match_id}"
-        )
-        time.sleep(3)
-
-        match_detail = requests.get(match_detail_url, headers=riot_header).json()
-
         check_query = """
                 SELECT id FROM matchinfo WHERE matchid = %s
                 """
 
-        check_data = (
-            match_id,
-        )
+        check_data = (match_id,)
 
-        match_check = PostgresExecute(query=check_query, data=check_data, **db_args).run(
-            password=password
-        )
+        match_check = PostgresExecute(
+            query=check_query, data=check_data, **db_args
+        ).run(password=password)
 
         if match_check is None:
+
+            match_detail_url = (
+                f"https://{route}.api.riotgames.com/tft/match/v1/matches/{match_id}"
+            )
+
+            match_detail_call = requests_retry_session().get(
+                match_detail_url, headers=riot_header
+            )
+
+            if recent_match_ids_call.status_code != 200:
+                logger.warning(
+                    f"Error requesting puuid data, status code{match_detail_call.status_code}"
+                )
+            match_detail = match_detail_call.json()
+
+            time.sleep(RATE_LIMIT_SECONDS)
 
             for participant in match_detail["info"]["participants"]:
 
@@ -93,7 +133,10 @@ def update_recent_match_history(player, password, riot_header, db_args):
                 )
 
                 match_data_id = PostgresFetch(
-                    query=participant_query, data=participant_data, fetch="one", **db_args
+                    query=participant_query,
+                    data=participant_data,
+                    fetch="one",
+                    **db_args,
                 ).run(password=password)
 
                 for units in participant["units"]:
