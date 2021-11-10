@@ -8,12 +8,10 @@ from requests.packages.urllib3.util.retry import Retry
 import time
 from typing import List, Optional
 from pydantic import BaseModel
+import datetime
+
 
 RATE_LIMIT_SECONDS = 2
-
-class MatchDetail(BaseModel):
-    match_id: str
-    participants: List[str]
 
 
 def requests_retry_session(
@@ -44,7 +42,6 @@ def get_users_from_league(region, league, password, db_args):
     ).run(password=password)
 
     return all_puuids
-
 
 
 def update_recent_match_history(region, puuid, logger, password, riot_header, db_args):
@@ -90,14 +87,15 @@ def update_recent_match_history(region, puuid, logger, password, riot_header, db
         )
 
 
-def update_participant_matchinfo(user_id, match_id, participant, password, db_args):
+def update_participant_matchinfo(user_id, match_id, participant,match_time,  password, db_args):
     match_query = """
-            INSERT INTO matchinfo VALUES (DEFAULT,%s,%s,%s)
+            INSERT INTO matchinfo (id, matchid, puuid, matchdate, updateddate, placement) VALUES (DEFAULT,%s,%s,%s,DEFAULT,%s)
             """
 
     match_data = (
         match_id,
         user_id,
+        match_time,
         participant["placement"],
     )
 
@@ -126,29 +124,6 @@ def get_matchinfo_id(user_id, match_id, password, db_args):
     return match_data_id
 
 
-def update_match_units(units, match_data_id, password, db_args):
-    character_id = units["character_id"]
-    tier = units["tier"]
-    items = units["items"]
-    item1 = items[0] if len(items) > 0 else None
-    item2 = items[1] if len(items) > 1 else None
-    item3 = items[1] if len(items) > 2 else None
-
-    unit_query = """
-        INSERT INTO matchunits VALUES (%s,%s,%s,%s,%s,%s)
-        """
-    unit_data = (
-        match_data_id,
-        character_id,
-        tier,
-        item1,
-        item2,
-        item3,
-    )
-
-    PostgresExecute(query=unit_query, data=unit_data, **db_args).run(password=password)
-
-
 def update_match(match_id, route, logger, password, riot_header, db_args):
     match_detail_url = (
         f"https://{route}.api.riotgames.com/tft/match/v1/matches/{match_id}"
@@ -166,9 +141,13 @@ def update_match(match_id, route, logger, password, riot_header, db_args):
 
     time.sleep(RATE_LIMIT_SECONDS)
 
+    match_time = match_detail["info"]["game_datetime"]
+    
+    match_time = datetime.datetime.fromtimestamp(match_time / 1e3)
+
     for participant in match_detail["info"]["participants"]:
         user_id = participant["puuid"]
-        update_participant_matchinfo(user_id, match_id, participant, password, db_args)
+        update_participant_matchinfo(user_id, match_id, participant,match_time, password, db_args)
 
         match_data_id = get_matchinfo_id(user_id, match_id, password, db_args)
 
@@ -189,13 +168,36 @@ def update_match(match_id, route, logger, password, riot_header, db_args):
             )
 
 
+def update_match_units(units, match_data_id, password, db_args):
+    character_id = units["character_id"]
+    tier = units["tier"]
+    items = units["items"]
+    item1 = items[0] if len(items) > 0 else None
+    item2 = items[1] if len(items) > 1 else None
+    item3 = items[1] if len(items) > 2 else None
+
+    unit_query = """
+        INSERT INTO matchunits (matchinfoid, unitname, unitstar, item1, item2, item3) VALUES (%s,%s,%s,%s,%s,%s)
+        """
+    unit_data = (
+        match_data_id,
+        character_id,
+        tier,
+        item1,
+        item2,
+        item3,
+    )
+
+    PostgresExecute(query=unit_query, data=unit_data, **db_args).run(password=password)
+
+
 def update_match_traits(traits, match_data_id, password, db_args):
     name = traits["name"]
     number_units = traits["num_units"]
     trait_tier = traits["tier_current"]
 
     unit_query = """
-        INSERT INTO matchtraits VALUES (%s,%s,%s,%s)
+        INSERT INTO matchtraits (matchinfoid, name, numberunits, tier) VALUES (%s,%s,%s,%s)
         """
     unit_data = (
         match_data_id,

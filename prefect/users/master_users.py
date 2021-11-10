@@ -63,6 +63,7 @@ def get_users_from_league(region, league, rank, riot_header):
 def update_users(user, region, tier, rank, password, riot_header, db_args):
     logger = prefect.context.get("logger")
     riot_user = RiotUser(**user)
+    print(riot_user.summonerName)
 
     summoner_query = """
         SELECT id FROM users WHERE summonerId = %s
@@ -74,7 +75,7 @@ def update_users(user, region, tier, rank, password, riot_header, db_args):
         query=summoner_query, data=summoner_data, fetch="all", **db_args
     ).run(password=password)
 
-    if summoner == None:
+    if len(summoner) == 0:
 
         puuid_url = f"https://{region}.api.riotgames.com/tft/summoner/v1/summoners/{riot_user.summonerId}"
         puuid_call = requests_retry_session().get(url=puuid_url, headers=riot_header)
@@ -91,8 +92,8 @@ def update_users(user, region, tier, rank, password, riot_header, db_args):
 
         user_query = """
             INSERT INTO users(
-                id, summonername, summonerid, league, ranktier, puuid, leaguepoints, region)
-            VALUES (DEFAULT, %s, %s, %s,%s, %s, %s, %s)
+                id, summonername, summonerid, league, ranktier, puuid, leaguepoints, region, updateddate)
+            VALUES (DEFAULT, %s, %s, %s,%s, %s, %s, %s, DEFAULT)
             ON CONFLICT (summonerid)
             DO UPDATE SET (league, leaguepoints)= (EXCLUDED.league, EXCLUDED.leaguepoints);
             """
@@ -112,7 +113,8 @@ def update_users(user, region, tier, rank, password, riot_header, db_args):
             UPDATE users
             set league = %s,
             ranktier = %s,
-            leaguepoints = %s
+            leaguepoints = %s,
+            updateddate = NOW()
             WHERE summonerid = %s
             """
 

@@ -6,13 +6,16 @@ CREATE TABLE "users" (
   "ranktier" varchar,
   "puuid" varchar,
   "leaguepoints" int,
-  "region" varchar
+  "region" varchar,
+  "updateddate" timestamp DEFAULT (now())
 );
 
 CREATE TABLE "matchinfo" (
   "id" SERIAL UNIQUE PRIMARY KEY,
   "matchid" varchar,
   "puuid" varchar,
+  "matchdate" timestamp DEFAULT (now()),
+  "updateddate" timestamp DEFAULT (now()),
   "placement" int
 );
 
