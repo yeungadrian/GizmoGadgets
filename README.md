@@ -1,7 +1,9 @@
-# ETL Riot Games
+# GizmoGadgets
+ETL job using Prefect to load data from Riot Games API
+
 Using Prefect & Python to load data from the Riot Games API into a postgresql database. Allows people to get match history data to analyse the best item / team composition.
 
-Updated for Set 6.
+Updated for Set 6. Waiting for augments on the api.
 
 ## Requirements:
 - Python
@@ -33,5 +35,8 @@ Use Prefect Server at http://localhost:8080 to monitor and execute flows
 
 ## To Do:
 - [x] Add retrying mechanism as api is quite flaky, even with delays
-- [] Type checking with pydantic
-- [] Publish package with code, to get around prefect limitation of no imports from other python files
+- [x] Type checking with pydantic (added for simple models)
+- [] Notebook with simple analysis of match data downloaded
+- [] Better logging??
+- [] Make it easier to run the same flow with slight adjustment (rank / tier)
+- [] Create account with prefect and test the 'real' product

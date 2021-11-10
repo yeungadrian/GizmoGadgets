@@ -6,12 +6,24 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 import time
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel
 import datetime
 
 
 RATE_LIMIT_SECONDS = 2
+
+
+class TFTUnits(BaseModel):
+    character_id: str
+    items: List[int]
+    tier: int
+
+
+class TFTTraits(BaseModel):
+    name: str
+    num_units: int
+    tier_current: int
 
 
 def requests_retry_session(
@@ -87,7 +99,9 @@ def update_recent_match_history(region, puuid, logger, password, riot_header, db
         )
 
 
-def update_participant_matchinfo(user_id, match_id, participant,match_time,  password, db_args):
+def update_participant_matchinfo(
+    user_id, match_id, participant, match_time, password, db_args
+):
     match_query = """
             INSERT INTO matchinfo (id, matchid, puuid, matchdate, updateddate, placement) VALUES (DEFAULT,%s,%s,%s,DEFAULT,%s)
             """
@@ -142,18 +156,20 @@ def update_match(match_id, route, logger, password, riot_header, db_args):
     time.sleep(RATE_LIMIT_SECONDS)
 
     match_time = match_detail["info"]["game_datetime"]
-    
+
     match_time = datetime.datetime.fromtimestamp(match_time / 1e3)
 
     for participant in match_detail["info"]["participants"]:
         user_id = participant["puuid"]
-        update_participant_matchinfo(user_id, match_id, participant,match_time, password, db_args)
+        update_participant_matchinfo(
+            user_id, match_id, participant, match_time, password, db_args
+        )
 
         match_data_id = get_matchinfo_id(user_id, match_id, password, db_args)
 
         for units in participant["units"]:
             update_match_units(
-                units=units,
+                units=TFTUnits(**units),
                 match_data_id=match_data_id,
                 password=password,
                 db_args=db_args,
@@ -161,7 +177,7 @@ def update_match(match_id, route, logger, password, riot_header, db_args):
 
         for traits in participant["traits"]:
             update_match_traits(
-                traits=traits,
+                traits=TFTTraits(**traits),
                 match_data_id=match_data_id,
                 password=password,
                 db_args=db_args,
@@ -169,9 +185,7 @@ def update_match(match_id, route, logger, password, riot_header, db_args):
 
 
 def update_match_units(units, match_data_id, password, db_args):
-    character_id = units["character_id"]
-    tier = units["tier"]
-    items = units["items"]
+    items = units.items
     item1 = items[0] if len(items) > 0 else None
     item2 = items[1] if len(items) > 1 else None
     item3 = items[1] if len(items) > 2 else None
@@ -181,8 +195,8 @@ def update_match_units(units, match_data_id, password, db_args):
         """
     unit_data = (
         match_data_id,
-        character_id,
-        tier,
+        units.character_id,
+        units.tier,
         item1,
         item2,
         item3,
@@ -192,18 +206,14 @@ def update_match_units(units, match_data_id, password, db_args):
 
 
 def update_match_traits(traits, match_data_id, password, db_args):
-    name = traits["name"]
-    number_units = traits["num_units"]
-    trait_tier = traits["tier_current"]
-
     unit_query = """
         INSERT INTO matchtraits (matchinfoid, name, numberunits, tier) VALUES (%s,%s,%s,%s)
         """
     unit_data = (
         match_data_id,
-        name,
-        number_units,
-        trait_tier,
+        traits.name,
+        traits.num_units,
+        traits.tier_current,
     )
 
     PostgresExecute(query=unit_query, data=unit_data, **db_args).run(password=password)
