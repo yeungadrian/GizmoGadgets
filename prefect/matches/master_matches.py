@@ -78,7 +78,7 @@ def update_recent_match_history(region, puuid, logger, password, riot_header, db
     recent_match_ids = recent_match_ids_call.json()
     time.sleep(RATE_LIMIT_SECONDS)
 
-    match_id_query = "SELECT matchid FROM matchinfo WHERE matchid = ANY(%s);"
+    match_id_query = "SELECT DISTINCT matchid FROM matchinfo WHERE matchid = ANY(%s);"
     match_id_data = (recent_match_ids,)
     existing_ids = PostgresFetch(
         query=match_id_query, data=match_id_data, fetch="all", **db_args

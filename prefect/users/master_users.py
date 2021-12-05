@@ -10,6 +10,7 @@ import time
 
 RATE_LIMIT_SECONDS = 1.6
 
+
 class RiotUser(BaseModel):
     summonerId: str
     summonerName: str
